@@ -136,6 +136,7 @@
                 :ensure-thread="ensureActiveThread"
                 :has-state-content="hasAgentStateContent"
                 :is-panel-open="isAgentPanelOpen"
+                :mention="mentionConfig"
                 @send="handleSendOrStop"
                 @attachment-changed="handleAgentStateRefresh"
                 @toggle-panel="toggleAgentPanel"
@@ -209,7 +210,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useChatUIStore } from '@/stores/chatUI'
 import { storeToRefs } from 'pinia'
 import { MessageProcessor } from '@/utils/messageProcessor'
-import { agentApi, threadApi } from '@/apis'
+import { agentApi, threadApi, databaseApi, mcpApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
 import { useApproval } from '@/composables/useApproval'
 import { useAgentStreamHandler } from '@/composables/useAgentStreamHandler'
@@ -225,7 +226,14 @@ const emit = defineEmits(['open-config', 'open-agent-modal'])
 // ==================== STORE MANAGEMENT ====================
 const agentStore = useAgentStore()
 const chatUIStore = useChatUIStore()
-const { agents, selectedAgentId, defaultAgentId, selectedAgentConfigId } = storeToRefs(agentStore)
+const {
+  agents,
+  selectedAgentId,
+  defaultAgentId,
+  selectedAgentConfigId,
+  agentConfig,
+  configurableItems
+} = storeToRefs(agentStore)
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
@@ -267,6 +275,10 @@ const threadMessages = ref({})
 const localUIState = reactive({
   isInitialRender: true
 })
+
+// Mention resources
+const availableKnowledgeBases = ref([])
+const availableMcps = ref([])
 
 // Agent Panel State
 const isAgentPanelOpen = ref(false)
@@ -341,6 +353,66 @@ const hasAgentStateContent = computed(() => {
   const fileCount = countFiles(s.files)
   const attachmentCount = Array.isArray(s.attachments) ? s.attachments.length : 0
   return todoCount > 0 || fileCount > 0 || attachmentCount > 0
+})
+
+const mentionConfig = computed(() => {
+  const rawFiles = currentAgentState.value?.files || []
+  const rawAttachments = currentAgentState.value?.attachments || []
+  const files = []
+
+  if (Array.isArray(rawFiles)) {
+    rawFiles.forEach((item) => {
+      if (typeof item === 'object' && item !== null) {
+        Object.entries(item).forEach(([filePath, fileData]) => {
+          files.push({
+            path: filePath,
+            ...fileData
+          })
+        })
+      }
+    })
+  }
+
+  if (Array.isArray(rawAttachments)) {
+    rawAttachments.forEach((item) => {
+      if (item && item.file_name) {
+        files.push({
+          path: item.file_name,
+          ...item
+        })
+      }
+    })
+  }
+
+  // Filter KBs and MCPs based on agent config
+  const configItems = configurableItems.value || {}
+  const currentConfig = agentConfig.value || {}
+  const allowedKbNames = new Set()
+  const allowedMcpNames = new Set()
+
+  Object.entries(configItems).forEach(([key, item]) => {
+    const kind = item?.template_metadata?.kind
+    const val = currentConfig[key]
+
+    if (Array.isArray(val)) {
+      if (kind === 'knowledges') {
+        val.forEach((v) => allowedKbNames.add(v))
+      } else if (kind === 'mcps') {
+        val.forEach((v) => allowedMcpNames.add(v))
+      }
+    }
+  })
+
+  const knowledgeBases = availableKnowledgeBases.value.filter((kb) => allowedKbNames.has(kb.name))
+  const mcps = availableMcps.value.filter((mcp) => allowedMcpNames.has(mcp.name))
+
+  if (!files.length && !knowledgeBases.length && !mcps.length) return null
+
+  return {
+    files,
+    knowledgeBases,
+    mcps
+  }
 })
 
 const currentThreadMessages = computed(() => threadMessages.value[currentChatId.value] || [])
@@ -593,6 +665,19 @@ const fetchAgentState = async (agentId, threadId) => {
     const ts = getThreadState(threadId)
     if (ts) ts.agentState = res.agent_state || null
   } catch (error) {}
+}
+
+const fetchMentionResources = async () => {
+  try {
+    const [dbsRes, mcpsRes] = await Promise.all([
+      databaseApi.getAccessibleDatabases().catch(() => ({ databases: [] })),
+      mcpApi.getMcpServers().catch(() => ({ data: [] }))
+    ])
+    availableKnowledgeBases.value = dbsRes.databases || []
+    availableMcps.value = mcpsRes.data || []
+  } catch (e) {
+    console.warn('Failed to fetch mention resources', e)
+  }
 }
 
 const ensureActiveThread = async (title = '新的对话') => {
@@ -1096,6 +1181,7 @@ const initAll = async () => {
     if (!agentStore.isInitialized) {
       await agentStore.initialize()
     }
+    await fetchMentionResources()
   } catch (error) {
     handleChatError(error, 'load')
   }
