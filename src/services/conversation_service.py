@@ -9,8 +9,12 @@ from src.services.doc_converter import (
     MAX_ATTACHMENT_SIZE_BYTES,
     convert_upload_to_markdown,
 )
+from src.storage.minio.client import get_minio_client
 from src.utils.datetime_utils import utc_isoformat
 from src.utils.logging_config import logger
+
+# 附件存储桶名称
+ATTACHMENTS_BUCKET = "chat-attachments"
 
 
 async def require_user_conversation(conv_repo: ConversationRepository, thread_id: str, user_id: str):
@@ -20,7 +24,25 @@ async def require_user_conversation(conv_repo: ConversationRepository, thread_id
     return conversation
 
 
+def _make_attachment_path(file_name: str) -> str:
+    """生成附件在文件系统中的路径（无需 thread_id，state 已隔离）
+
+    统一使用 .md 扩展名，因为文件内容已经是 Markdown 格式
+    """
+    # 提取不带扩展名的部分
+    base_name = file_name
+    for ext in ['.docx', '.txt', '.html', '.htm', '.pdf', '.md']:
+        if file_name.lower().endswith(ext):
+            base_name = file_name[:-len(ext)]
+            break
+
+    # 替换路径分隔符
+    safe_name = base_name.replace("/", "_").replace("\\", "_")
+    return f"/attachments/{safe_name}.md"
+
+
 def serialize_attachment(record: dict) -> dict:
+    """序列化附件记录，返回给前端"""
     return {
         "file_id": record.get("file_id"),
         "file_name": record.get("file_name"),
@@ -29,6 +51,7 @@ def serialize_attachment(record: dict) -> dict:
         "status": record.get("status", "parsed"),
         "uploaded_at": record.get("uploaded_at"),
         "truncated": record.get("truncated", False),
+        "minio_url": record.get("minio_url"),  # 仅用于前端下载
     }
 
 
@@ -143,6 +166,28 @@ async def upload_thread_attachment_view(
         logger.error(f"附件解析失败: {exc}")
         raise HTTPException(status_code=500, detail="附件解析失败，请稍后重试") from exc
 
+    # 生成文件路径
+    file_path = _make_attachment_path(conversion.file_name)
+
+    # 上传源文件到 MinIO（用于前端下载）
+    minio_url = None
+    try:
+        file_content = await file.read()
+        await file.seek(0)
+        client = get_minio_client()
+        object_name = f"attachments/{thread_id}/{conversion.file_name}"
+        result = client.upload_file(
+            bucket_name=ATTACHMENTS_BUCKET,
+            object_name=object_name,
+            data=file_content,
+            content_type=conversion.file_type or "application/octet-stream",
+        )
+        minio_url = result.public_url
+        logger.info(f"Uploaded attachment to MinIO: {object_name}")
+    except Exception as e:
+        logger.error(f"Failed to upload attachment to MinIO: {e}")
+        # 继续处理，不因为上传失败而中断
+
     attachment_record = {
         "file_id": conversion.file_id,
         "file_name": conversion.file_name,
@@ -152,6 +197,8 @@ async def upload_thread_attachment_view(
         "markdown": conversion.markdown,
         "uploaded_at": utc_isoformat(),
         "truncated": conversion.truncated,
+        "file_path": file_path,  # 用于 StateBackend，前端不返回此字段
+        "minio_url": minio_url,
     }
     await conv_repo.add_attachment(conversation.id, attachment_record)
 

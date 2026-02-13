@@ -1,10 +1,10 @@
-from deepagents.backends import CompositeBackend, StateBackend
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
 
+from deepagents.backends import StateBackend
+from deepagents.middleware.filesystem import FilesystemMiddleware
+
 from src.agents.common import BaseAgent, load_chat_model
-from src.agents.common.backends.minio_backend import MinIOBackend
 from src.agents.common.middlewares import (
     RuntimeConfigMiddleware,
     save_attachments_to_fs,
@@ -12,20 +12,9 @@ from src.agents.common.middlewares import (
 from src.services.mcp_service import get_tools_from_all_servers
 
 
-def _create_fs_backend_factory(rt) -> CompositeBackend:
-    """创建混合文件存储后端工厂函数（供 FilesystemMiddleware 使用）。
-
-    /attachments/* 路由到 MinIO（供附件中间件使用）
-    其他路径使用 StateBackend（内存存储，用于临时文件和大结果卸载）
-
-    注意：rt (runtime) 由 FilesystemMiddleware 在初始化时自动传入。
-    """
-    return CompositeBackend(
-        default=StateBackend(rt),  # 传入 runtime
-        routes={
-            "/attachments/": MinIOBackend(bucket_name="chat-attachments"),
-        },
-    )
+def _create_fs_backend(rt):
+    """创建文件存储后端"""
+    return StateBackend(rt)
 
 
 class ChatbotAgent(BaseAgent):
@@ -49,8 +38,8 @@ class ChatbotAgent(BaseAgent):
             model=load_chat_model(context.model),
             system_prompt=context.system_prompt,
             middleware=[
-                save_attachments_to_fs,  # 附件保存到文件系统
-                FilesystemMiddleware(backend=_create_fs_backend_factory, tool_token_limit_before_evict=5000),
+                save_attachments_to_fs,  # 附件注入提示词
+                FilesystemMiddleware(backend=_create_fs_backend),  # 文件系统后端
                 RuntimeConfigMiddleware(extra_tools=all_mcp_tools),  # 运行时配置应用（模型/工具/知识库/MCP/提示词）
                 ModelRetryMiddleware(),  # 模型重试中间件
             ],

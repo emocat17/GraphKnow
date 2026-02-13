@@ -338,12 +338,21 @@ const currentAgentState = computed(() => {
 })
 
 const countFiles = (files) => {
-  if (!Array.isArray(files)) return 0
-  let c = 0
-  for (const item of files) {
-    if (item && typeof item === 'object') c += Object.keys(item).length
+  // 支持 dict 格式（StateBackend 格式）和 array 格式
+  if (!files) return 0
+  if (typeof files === 'object' && !Array.isArray(files)) {
+    // dict 格式: {"/attachments/file.md": {...}, ...}
+    return Object.keys(files).length
   }
-  return c
+  if (Array.isArray(files)) {
+    // array 格式
+    let c = 0
+    for (const item of files) {
+      if (item && typeof item === 'object') c += Object.keys(item).length
+    }
+    return c
+  }
+  return 0
 }
 
 const hasAgentStateContent = computed(() => {
@@ -351,16 +360,24 @@ const hasAgentStateContent = computed(() => {
   if (!s) return false
   const todoCount = Array.isArray(s.todos) ? s.todos.length : 0
   const fileCount = countFiles(s.files)
-  const attachmentCount = Array.isArray(s.attachments) ? s.attachments.length : 0
-  return todoCount > 0 || fileCount > 0 || attachmentCount > 0
+  return todoCount > 0 || fileCount > 0
 })
 
 const mentionConfig = computed(() => {
-  const rawFiles = currentAgentState.value?.files || []
-  const rawAttachments = currentAgentState.value?.attachments || []
+  const rawFiles = currentAgentState.value?.files || {}
   const files = []
 
-  if (Array.isArray(rawFiles)) {
+  // 处理 files - 兼容字典格式 {"/path/file": {content: [...]}} 和旧数组格式
+  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles) && rawFiles !== null) {
+    // 新格式：字典格式 {"/attachments/xxx/file.md": {...}}
+    Object.entries(rawFiles).forEach(([filePath, fileData]) => {
+      files.push({
+        path: filePath,
+        ...fileData
+      })
+    })
+  } else if (Array.isArray(rawFiles)) {
+    // 旧格式：数组格式
     rawFiles.forEach((item) => {
       if (typeof item === 'object' && item !== null) {
         Object.entries(item).forEach(([filePath, fileData]) => {
@@ -368,17 +385,6 @@ const mentionConfig = computed(() => {
             path: filePath,
             ...fileData
           })
-        })
-      }
-    })
-  }
-
-  if (Array.isArray(rawAttachments)) {
-    rawAttachments.forEach((item) => {
-      if (item && item.file_name) {
-        files.push({
-          path: item.file_name,
-          ...item
         })
       }
     })
@@ -662,8 +668,18 @@ const fetchAgentState = async (agentId, threadId) => {
   if (!agentId || !threadId) return
   try {
     const res = await agentApi.getAgentState(agentId, threadId)
-    const ts = getThreadState(threadId)
-    if (ts) ts.agentState = res.agent_state || null
+    // 确保更新 currentChatId 对应的 state，因为 currentAgentState 依赖它
+    // 如果 currentChatId 为 null，使用传入的 threadId
+    const targetChatId = currentChatId.value || threadId
+    console.log('[fetchAgentState] agentId:', agentId, 'threadId:', threadId, 'targetChatId:', targetChatId, 'agent_state:', JSON.stringify(res.agent_state || {})?.slice(0, 200))
+    const ts = getThreadState(targetChatId)
+    if (ts) {
+      ts.agentState = res.agent_state || null
+    } else {
+      // 如果 targetChatId 对应的 state 不存在，创建一个
+      const newTs = getThreadState(threadId)
+      if (newTs) newTs.agentState = res.agent_state || null
+    }
   } catch (error) {}
 }
 
@@ -1068,9 +1084,13 @@ const toggleSidebar = () => {
 }
 const openAgentModal = () => emit('open-agent-modal')
 
-const handleAgentStateRefresh = async () => {
-  if (!currentAgentId.value || !currentChatId.value) return
-  await fetchAgentState(currentAgentId.value, currentChatId.value)
+const handleAgentStateRefresh = async (threadId = null) => {
+  if (!currentAgentId.value) return
+  // 优先使用传入的 threadId，否则使用当前的 currentChatId
+  let chatId = threadId || currentChatId.value
+  console.log('[handleAgentStateRefresh] input threadId:', threadId, 'currentChatId:', currentChatId.value, 'final chatId:', chatId)
+  if (!chatId) return
+  await fetchAgentState(currentAgentId.value, chatId)
 }
 
 const toggleAgentPanel = () => {

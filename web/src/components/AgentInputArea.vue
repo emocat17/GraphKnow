@@ -114,7 +114,7 @@ const handleAttachmentUpload = async (files) => {
       await threadApi.uploadThreadAttachment(threadId, file)
       message.success(`${file.name} 上传成功`)
     }
-    emit('attachment-changed')
+    emit('attachment-changed', threadId)
   } catch (error) {
     handleChatError(error, 'upload')
   }

@@ -25,13 +25,6 @@
       <button class="tab" :class="{ active: activeTab === 'files' }" @click="activeTab = 'files'">
         文件 ({{ fileCount }})
       </button>
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'attachments' }"
-        @click="activeTab = 'attachments'"
-      >
-        附件 ({{ attachmentCount }})
-      </button>
     </div>
     <div class="tab-content">
       <!-- Todo Display -->
@@ -102,83 +95,7 @@
           </a-tree>
         </div>
       </div>
-
-      <!-- Attachments Display -->
-      <div v-if="activeTab === 'attachments'" class="files-display">
-        <div class="list-header" v-if="attachmentCount">
-          <div class="list-header-left">
-            <span class="count">{{ attachmentCount }} 个附件</span>
-            <a-tooltip title="支持 txt/md/docx/html 格式 ≤ 5 MB">
-              <Info :size="14" class="info-icon" />
-            </a-tooltip>
-          </div>
-          <button class="add-btn" @click="triggerUpload" :disabled="isUploading">
-            <Plus :size="16" />
-            <span>添加</span>
-          </button>
-        </div>
-        <div v-if="!attachmentCount" class="empty">
-          <p>暂无附件，支持 txt/md/docx/html 格式 ≤ 5 MB</p>
-          <a-button type="primary" @click="triggerUpload" :loading="isUploading">上传附件</a-button>
-        </div>
-        <div v-else class="file-tree-container attachment-tree">
-          <a-tree
-            v-model:expandedKeys="expandedKeys"
-            :tree-data="attachmentTreeData"
-            :show-icon="true"
-            block-node
-            :show-line="false"
-            @select="onFileSelect"
-          >
-            <template #icon="{ data, expanded }">
-              <template v-if="data.isLeaf">
-                <component
-                  :is="getFileIcon(data.key)"
-                  :style="{ color: getFileIconColor(data.key), fontSize: '16px' }"
-                />
-              </template>
-              <template v-else>
-                <FolderOpen v-if="expanded" :size="18" class="folder-icon open" />
-                <Folder v-else :size="18" class="folder-icon" />
-              </template>
-            </template>
-            <template #title="{ data }">
-              <div class="tree-node-wrapper" @click="toggleFolder(data)">
-                <div class="tree-node-name" :title="data.title">
-                  <span class="name-start">{{ data.nameStart || data.title }}</span>
-                  <span class="name-end" v-if="data.nameEnd">{{ data.nameEnd }}</span>
-                </div>
-                <div v-if="data.isLeaf" class="node-actions" @click.stop>
-                  <button
-                    class="tree-action-btn tree-download-btn"
-                    @click.stop="downloadFile(data.fileData)"
-                    title="下载文件"
-                  >
-                    <Download :size="14" />
-                  </button>
-                  <button
-                    class="tree-action-btn tree-delete-btn"
-                    @click.stop="deleteAttachment(data.fileData)"
-                    title="删除附件"
-                  >
-                    <Trash2 :size="14" />
-                  </button>
-                </div>
-              </div>
-            </template>
-          </a-tree>
-        </div>
-      </div>
     </div>
-
-    <!-- Hidden File Input -->
-    <input
-      type="file"
-      ref="fileInputRef"
-      style="display: none"
-      multiple
-      @change="handleFileChange"
-    />
 
     <!-- 文件内容 Modal -->
     <a-modal
@@ -237,13 +154,10 @@ import { computed, ref, onMounted, onUpdated, nextTick } from 'vue'
 import {
   Download,
   X,
-  Plus,
-  Info,
   FolderCode,
   RefreshCw,
   Folder,
-  FolderOpen,
-  Trash2
+  FolderOpen
 } from 'lucide-vue-next'
 import {
   CheckCircleOutlined,
@@ -256,8 +170,6 @@ import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import { useThemeStore } from '@/stores/theme'
 import { getFileIcon, getFileIconColor, formatFileSize } from '@/utils/file_utils'
-import { threadApi } from '@/apis'
-import { message } from 'ant-design-vue'
 
 const props = defineProps({
   agentState: {
@@ -280,8 +192,6 @@ const activeTab = ref('todos')
 const modalVisible = ref(false)
 const currentFile = ref(null)
 const currentFilePath = ref('')
-const isUploading = ref(false)
-const fileInputRef = ref(null)
 
 const themeStore = useThemeStore()
 const theme = computed(() => (themeStore.isDark ? 'dark' : 'light'))
@@ -296,10 +206,6 @@ const todos = computed(() => {
 
 const files = computed(() => {
   return props.agentState?.files || []
-})
-
-const attachments = computed(() => {
-  return props.agentState?.attachments || []
 })
 
 const completedCount = computed(() => {
@@ -346,32 +252,33 @@ onUpdated(() => {
 
 // 适配实际数据格式
 const normalizedFiles = computed(() => {
-  if (!Array.isArray(files.value)) return []
-
+  const rawFiles = files.value
   const result = []
-  files.value.forEach((item) => {
-    if (typeof item === 'object' && item !== null) {
-      Object.entries(item).forEach(([filePath, fileData]) => {
-        result.push({
-          path: filePath,
-          ...fileData
-        })
+
+  // 兼容字典格式 {"/path/file": {content: [...]}} 和旧数组格式
+  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles) && rawFiles !== null) {
+    // 新格式：字典格式
+    Object.entries(rawFiles).forEach(([filePath, fileData]) => {
+      result.push({
+        path: filePath,
+        ...fileData
       })
-    }
-  })
+    })
+  } else if (Array.isArray(rawFiles)) {
+    // 旧格式：数组格式
+    rawFiles.forEach((item) => {
+      if (typeof item === 'object' && item !== null) {
+        Object.entries(item).forEach(([filePath, fileData]) => {
+          result.push({
+            path: filePath,
+            ...fileData
+          })
+        })
+      }
+    })
+  }
 
   return result
-})
-
-const normalizedAttachments = computed(() => {
-  if (!Array.isArray(attachments.value)) return []
-  return attachments.value.map((item) => ({
-    ...item,
-    path: item.file_name,
-    content: item.markdown,
-    modified_at: item.uploaded_at,
-    size: item.file_size
-  }))
 })
 
 const expandedKeys = ref([])
@@ -483,7 +390,6 @@ const truncateFilename = (name) => {
 }
 
 const fileTreeData = computed(() => buildTreeData(normalizedFiles.value))
-const attachmentTreeData = computed(() => buildTreeData(normalizedAttachments.value))
 
 const toggleFolder = (data) => {
   if (data.isLeaf) return
@@ -506,10 +412,6 @@ const onFileSelect = (selectedKeys, { node }) => {
 
 const fileCount = computed(() => {
   return normalizedFiles.value.length
-})
-
-const attachmentCount = computed(() => {
-  return normalizedAttachments.value.length
 })
 
 // 方法
@@ -555,11 +457,38 @@ const closeModal = () => {
 
 const downloadFile = (fileItem) => {
   try {
+    // /attachments/ 下的文件直接从内容下载（已经是 Markdown）
+    if (fileItem.path?.startsWith('/attachments/') && fileItem.content) {
+      const content = formatContent(fileItem.content)
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = getFileName(fileItem)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    // 其他文件：优先使用 minio_url 下载源文件
+    if (fileItem.minio_url) {
+      const link = document.createElement('a')
+      link.href = fileItem.minio_url
+      link.download = getFileName(fileItem)
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      return
+    }
+
+    // 降级：从 content 创建下载
     const content = formatContent(fileItem.content)
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-
     link.href = url
     link.download = getFileName(fileItem)
     document.body.appendChild(link)
@@ -571,47 +500,8 @@ const downloadFile = (fileItem) => {
   }
 }
 
-const triggerUpload = () => {
-  if (fileInputRef.value) {
-    fileInputRef.value.click()
-  }
-}
-
-const handleFileChange = async (event) => {
-  const files = event.target.files
-  if (!files?.length || !props.threadId) return
-
-  isUploading.value = true
-  try {
-    for (const file of Array.from(files)) {
-      await threadApi.uploadThreadAttachment(props.threadId, file)
-      message.success(`${file.name} 上传成功`)
-    }
-    emitRefresh()
-  } catch (error) {
-    console.error('上传附件失败:', error)
-    message.error('上传附件失败')
-  } finally {
-    isUploading.value = false
-    event.target.value = ''
-  }
-}
-
 const emitRefresh = () => {
   emit('refresh')
-}
-
-const deleteAttachment = async (fileItem) => {
-  if (!props.threadId || !fileItem?.file_id) return
-
-  try {
-    await threadApi.deleteThreadAttachment(props.threadId, fileItem.file_id)
-    message.success('附件已删除')
-    emitRefresh()
-  } catch (error) {
-    console.error('删除附件失败:', error)
-    message.error('删除附件失败')
-  }
 }
 
 // 拖拽调整宽度相关
@@ -1137,9 +1027,10 @@ const stopResize = () => {
 
 /* Specific Ant Design Tree Overrides */
 .file-tree-container :deep(.ant-tree) {
-  background: transparent;
+  background: var(--gray-25);
   font-family: inherit;
   font-size: 14px;
+  overflow: hidden;
 
   .ant-tree-treenode {
     width: 100%;

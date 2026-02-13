@@ -137,7 +137,11 @@ export function useMention() {
     const categorized = getCategorizedItems()
 
     const filterItems = (items) =>
-      items.filter((item) => item.label.toLowerCase().includes(lowerQuery))
+      items.filter(
+        (item) =>
+          item.label.toLowerCase().includes(lowerQuery) ||
+          item.value.toLowerCase().includes(lowerQuery)
+      )
 
     return {
       files: filterItems(categorized.files),

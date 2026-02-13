@@ -1,6 +1,6 @@
 """Deep Agent - 基于create_deep_agent的深度分析智能体"""
 
-from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
+from deepagents.backends import StateBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
@@ -10,31 +10,16 @@ from langchain.agents.middleware import (
 )
 
 from src.agents.common import BaseAgent, load_chat_model
-from src.agents.common.middlewares import (
-    RuntimeConfigMiddleware,
-    SummaryOffloadMiddleware,
-    save_attachments_to_fs,
-)
+from src.agents.common.middlewares import RuntimeConfigMiddleware, SummaryOffloadMiddleware, save_attachments_to_fs
 from src.agents.common.tools import get_tavily_search
 from src.services.mcp_service import get_tools_from_all_servers
 
 from .context import DeepContext
 
 
-def _create_filesystem_backend_factory(rt) -> CompositeBackend:
-    """创建混合文件存储后端工厂函数（供 FilesystemMiddleware 使用）。
-
-    /attachments/* 路由到真实文件系统（供附件中间件使用）
-    其他路径使用 StateBackend（内存存储，用于临时文件和大结果卸载）
-
-    注意：rt (runtime) 由 FilesystemMiddleware 在调用时自动传入。
-    """
-    return CompositeBackend(
-        default=StateBackend(rt),  # 传入 runtime 创建实例
-        routes={
-            "/attachments/": FilesystemBackend(root_dir=".", virtual_mode=False),
-        },
-    )
+def _create_fs_backend(rt):
+    """创建文件存储后端"""
+    return StateBackend(rt)
 
 
 def _get_research_sub_agent(search_tools: list) -> dict:
@@ -130,7 +115,6 @@ class DeepAgent(BaseAgent):
             default_tools=search_tools,
             subagents=[critique_sub_agent, research_sub_agent],
             default_middleware=[
-                FilesystemMiddleware(backend=_create_filesystem_backend_factory),
                 RuntimeConfigMiddleware(
                     model_context_name="subagents_model",
                     enable_model_override=True,
@@ -148,9 +132,9 @@ class DeepAgent(BaseAgent):
             model=model,
             system_prompt=context.system_prompt,
             middleware=[
-                FilesystemMiddleware(backend=_create_filesystem_backend_factory),
+                FilesystemMiddleware(backend=_create_fs_backend),  # 文件系统后端
                 RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
-                save_attachments_to_fs,  # 附件保存到文件系统
+                save_attachments_to_fs,  # 附件注入提示词
                 TodoListMiddleware(),
                 PatchToolCallsMiddleware(),
                 subagents_middleware,
