@@ -38,6 +38,15 @@
   <!-- 编辑文件 -->
   <EditFileTool v-else-if="isEditFileResult" :tool-call="toolCall" />
 
+  <!-- MySQL 查询 -->
+  <MysqlQueryTool v-else-if="isMysqlQueryResult" :tool-call="toolCall" />
+
+  <!-- MySQL 描述表 -->
+  <MysqlDescribeTableTool v-else-if="isMysqlDescribeTableResult" :tool-call="toolCall" />
+
+  <!-- MySQL 列出表 -->
+  <MysqlListTablesTool v-else-if="isMysqlListTablesResult" :tool-call="toolCall" />
+
   <!-- 默认展示 -->
   <BaseToolCall v-else :tool-call="toolCall" />
 </template>
@@ -61,6 +70,9 @@ import ListDirectoryTool from './tools/ListDirectoryTool.vue'
 import SearchFileContentTool from './tools/SearchFileContentTool.vue'
 import GlobTool from './tools/GlobTool.vue'
 import EditFileTool from './tools/EditFileTool.vue'
+import MysqlQueryTool from './tools/MysqlQueryTool.vue'
+import MysqlDescribeTableTool from './tools/MysqlDescribeTableTool.vue'
+import MysqlListTablesTool from './tools/MysqlListTablesTool.vue'
 
 const props = defineProps({
   toolCall: {
@@ -168,6 +180,18 @@ const isGlobResult = computed(() => {
 
 const isEditFileResult = computed(() => {
   return toolName.value === 'edit_file' || toolName.value === 'replace'
+})
+
+const isMysqlQueryResult = computed(() => {
+  return toolName.value === 'mysql_query'
+})
+
+const isMysqlDescribeTableResult = computed(() => {
+  return toolName.value === 'mysql_describe_table'
+})
+
+const isMysqlListTablesResult = computed(() => {
+  return toolName.value === 'mysql_list_tables'
 })
 
 // 处理知识图谱刷新
