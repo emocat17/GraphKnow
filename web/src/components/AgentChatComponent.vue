@@ -626,12 +626,15 @@ const deleteThread = async (threadId) => {
 const updateThread = async (threadId, title) => {
   if (!threadId || !title) return
 
+  const normalizedTitle = String(title).replace(/\s+/g, ' ').trim().slice(0, 255)
+  if (!normalizedTitle) return
+
   chatState.isRenamingThread = true
   try {
-    await threadApi.updateThread(threadId, title)
+    await threadApi.updateThread(threadId, normalizedTitle)
     const thread = threads.value.find((t) => t.id === threadId)
     if (thread) {
-      thread.title = title
+      thread.title = normalizedTitle
     }
   } catch (error) {
     console.error('Failed to update thread:', error)
@@ -750,7 +753,10 @@ const sendMessage = async ({
 
   // 如果是新对话，用消息内容作为标题
   if ((threadMessages.value[threadId] || []).length === 0) {
-    updateThread(threadId, text)
+    const autoTitle = text.replace(/\s+/g, ' ').trim().slice(0, 255)
+    if (autoTitle) {
+      void updateThread(threadId, autoTitle).catch(() => {})
+    }
   }
 
   const requestData = {

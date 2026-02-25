@@ -12,10 +12,25 @@ from src.storage.postgres.models_business import Conversation, ConversationStats
 from src.utils import logger
 from src.utils.datetime_utils import utc_now_naive
 
+MAX_CONVERSATION_TITLE_LENGTH = 255
+
 
 class ConversationRepository:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
+
+    def _normalize_title(self, title: str | None) -> str | None:
+        if title is None:
+            return None
+        normalized = str(title).strip()
+        if not normalized:
+            return ""
+        if len(normalized) > MAX_CONVERSATION_TITLE_LENGTH:
+            logger.warning(
+                f"Conversation title too long ({len(normalized)}), truncate to {MAX_CONVERSATION_TITLE_LENGTH}"
+            )
+            return normalized[:MAX_CONVERSATION_TITLE_LENGTH]
+        return normalized
 
     async def create_conversation(
         self,
@@ -31,11 +46,13 @@ class ConversationRepository:
         metadata = (metadata or {}).copy()
         metadata.setdefault("attachments", [])
 
+        normalized_title = self._normalize_title(title)
+
         conversation = Conversation(
             thread_id=thread_id,
             user_id=str(user_id),
             agent_id=agent_id,
-            title=title or "New Conversation",
+            title=normalized_title or "New Conversation",
             status="active",
             extra_metadata=metadata,
         )
@@ -203,8 +220,9 @@ class ConversationRepository:
         if not conversation:
             return None
 
-        if title is not None:
-            conversation.title = title
+        normalized_title = self._normalize_title(title)
+        if normalized_title is not None:
+            conversation.title = normalized_title
         if status is not None:
             conversation.status = status
 
