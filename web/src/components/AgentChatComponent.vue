@@ -1349,7 +1349,7 @@ watch(
   background: var(--gray-0);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--shadow-1);
-  border: 1px solid var(--gray-200);
+  border: 1px solid var(--gray-150);
   min-width: 0;
   will-change: flex-basis;
 }

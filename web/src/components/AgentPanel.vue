@@ -565,7 +565,7 @@ const stopResize = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
+  padding: 4px 16px;
   height: 40px;
   background: var(--gray-25);
   flex-shrink: 0;
@@ -623,7 +623,7 @@ const stopResize = () => {
   background: var(--gray-25);
   position: relative;
   align-items: center;
-  padding: 8px 6px;
+  padding: 8px 10px;
   padding-top: 0px;
   gap: 4px;
   flex-shrink: 0;
@@ -655,7 +655,7 @@ const stopResize = () => {
 .tab-content {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 8px;
   min-height: 0; /* Important for flex child scroll */
 
   /* 自定义滚动条 */
@@ -1020,7 +1020,6 @@ const stopResize = () => {
 
 /* Specific Ant Design Tree Overrides */
 .file-tree-container :deep(.ant-tree) {
-  background: var(--gray-25);
   font-family: inherit;
   font-size: 14px;
   overflow: hidden;

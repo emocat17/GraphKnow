@@ -1,6 +1,7 @@
 <template>
   <MessageInputComponent
     ref="inputRef"
+    :key="inputKey"
     :model-value="modelValue"
     @update:modelValue="updateValue"
     :is-loading="isLoading"
@@ -48,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import MessageInputComponent from '@/components/MessageInputComponent.vue'
 import ImagePreviewComponent from '@/components/ImagePreviewComponent.vue'
@@ -84,6 +85,20 @@ const emit = defineEmits([
 const inputRef = ref(null)
 const currentImage = ref(null)
 
+// 用于强制重建输入组件的 key
+const inputKey = ref(0)
+
+// 监听 hasStateContent 变化，当从有 state 切换到无 state 时重建组件
+watch(
+  () => props.hasStateContent,
+  (newVal, oldVal) => {
+    // 当 hasStateContent 从 true 变为 false 时，重建输入组件
+    if (oldVal === true && newVal === false) {
+      inputKey.value++
+    }
+  }
+)
+
 const updateValue = (val) => {
   emit('update:modelValue', val)
 }
@@ -110,12 +125,14 @@ const handleAttachmentUpload = async (files) => {
   }
 
   try {
+    const hide = message.loading({ content: '正在上传附件...', key: 'upload-attachment', duration: 0 })
     for (const file of files) {
       await threadApi.uploadThreadAttachment(threadId, file)
-      message.success(`${file.name} 上传成功`)
     }
+    message.success({ content: '附件上传成功', key: 'upload-attachment', duration: 2 })
     emit('attachment-changed', threadId)
   } catch (error) {
+    message.destroy('upload-attachment')
     handleChatError(error, 'upload')
   }
 }
