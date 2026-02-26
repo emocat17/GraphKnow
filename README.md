@@ -17,6 +17,7 @@
   <img src="https://trendshift.io/api/badge/repositories/15845" alt="Yuxi-Know | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
 </a>
 
+
 [**文档中心**](https://xerrors.github.io/Yuxi-Know/) |
 [**视频演示**](https://www.bilibili.com/video/BV1DF14BTETq/)
 
@@ -107,9 +108,7 @@
 - 更多智能体开发套件 中间件、子智能体，更简洁，更易上手。
 </details>
 
-<img width="1848" height="430" alt="image" src="https://github.com/user-attachments/assets/96e781bf-5aaa-4fb9-90de-b1b0a1626817" />
-
-
+<img width="4224" height="1006" alt="image" src="https://github.com/user-attachments/assets/66a85b70-5a40-4c5e-aeaa-18b3c85aa76f" />
 
 
 ## 快速开始

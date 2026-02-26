@@ -2,14 +2,13 @@
   <BaseToolCall :tool-call="toolCall">
     <template #header>
       <div class="sep-header">
-        <span class="note">write_file</span>
-        <span class="separator" v-if="filePath">|</span>
-        <span class="description code">{{ filePath }}</span>
-        <span class="tag success"> +{{ lineCount }}</span>
+        <span class="note">search_file_content</span>
+        <span class="separator" v-if="pattern">|</span>
+        <span class="keywords">{{ pattern }}</span>
+        <span class="separator" v-if="dirPath">|</span>
+        <span class="description code">{{ dirPath }}</span>
       </div>
     </template>
-
-    <template #result> </template>
   </BaseToolCall>
 </template>
 
@@ -35,13 +34,8 @@ const parsedArgs = computed(() => {
   }
 })
 
-const filePath = computed(() => {
-  const path = parsedArgs.value.file_path || ''
-  return path.startsWith('/') ? path.slice(1) : path
-})
-const content = computed(() => parsedArgs.value.content || '')
-const lineCount = computed(() => {
-  if (!content.value) return 0
-  return String(content.value).split('\n').length
-})
+const pattern = computed(() => parsedArgs.value.pattern || '')
+const dirPath = computed(() => parsedArgs.value.dir_path || '')
 </script>
+
+<style lang="less" scoped></style>

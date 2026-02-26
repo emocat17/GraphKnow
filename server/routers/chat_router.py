@@ -658,6 +658,11 @@ async def update_thread(
     )
 
 
+
+# ================================
+# > === 附件管理分组 ===
+# ================================
+
 @chat.post("/thread/{thread_id}/attachments", response_model=AttachmentResponse)
 async def upload_thread_attachment(
     thread_id: str,

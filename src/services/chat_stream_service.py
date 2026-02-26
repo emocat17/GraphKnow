@@ -3,6 +3,7 @@ import json
 import traceback
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 
 from langchain.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.types import Command
@@ -17,6 +18,41 @@ from src.storage.postgres.manager import pg_manager
 from src.utils.logging_config import logger
 
 
+def _build_state_files(attachments: list[dict]) -> dict:
+    """将附件列表转换为 StateBackend 格式的 files 字典
+
+    StateBackend 期望的格式:
+    {
+        "/attachments/file.md": {
+            "content": ["line1", "line2", ...],
+            "created_at": "...",
+            "modified_at": "...",
+        }
+    }
+    """
+    files = {}
+    for attachment in attachments:
+        if attachment.get("status") != "parsed":
+            continue
+
+        file_path = attachment.get("file_path")
+        markdown = attachment.get("markdown")
+
+        if not file_path or not markdown:
+            continue
+
+        now = datetime.utcnow().isoformat() + "+00:00"
+        # 将 markdown 内容按行拆分
+        content_lines = markdown.split("\n")
+        files[file_path] = {
+            "content": content_lines,
+            "created_at": attachment.get("uploaded_at", now),
+            "modified_at": attachment.get("uploaded_at", now),
+        }
+
+    return files
+
+
 async def _get_langgraph_messages(agent_instance, config_dict):
     graph = await agent_instance.get_graph()
     state = await graph.aget_state(config_dict)
@@ -29,20 +65,16 @@ async def _get_langgraph_messages(agent_instance, config_dict):
 
 
 def extract_agent_state(values: dict) -> dict:
+    """从 LangGraph state 中提取 agent 状态"""
     if not isinstance(values, dict):
         return {}
 
-    def _norm_list(v):
-        if v is None:
-            return []
-        if isinstance(v, (list, tuple)):
-            return list(v)
-        return [v]
-
-    result = {}
-    print(f"values.keys(): {values.keys()}")
-    result["todos"] = _norm_list(values.get("todos"))[:20]
-    result["files"] = _norm_list(values.get("files"))[:50]
+    # 直接获取，信任 state 的数据结构
+    todos = values.get("todos")
+    result = {
+        "todos": list(todos)[:20] if todos else [],
+        "files": values.get("files") or {},
+    }
 
     return result
 
@@ -324,13 +356,11 @@ async def stream_agent_chat(
         except Exception as e:
             logger.error(f"Error saving user message: {e}")
 
-        try:
-            assert thread_id, "thread_id is required"
-            attachments = await conv_repo.get_attachments_by_thread_id(thread_id)
-            input_context["attachments"] = attachments
-        except Exception as e:
-            logger.error(f"Error loading attachments for thread_id={thread_id}: {e}")
-            input_context["attachments"] = []
+        # 先构建 langgraph_config
+        langgraph_config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+
+        # 注意：LangGraph 会自动从 checkpointer 恢复 state（包括 attachments 和 files）
+        # 无需手动加载或传递
 
         # 根据用户权限过滤知识库
         requested_knowledge_names = input_context["agent_config"].get("knowledges")
@@ -353,7 +383,6 @@ async def stream_agent_chat(
 
         full_msg = None
         accumulated_content = []
-        langgraph_config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
         async for msg, metadata in agent.stream_messages(messages, input_context=input_context):
             if isinstance(msg, AIMessageChunk):
                 accumulated_content.append(msg.content)
@@ -404,14 +433,15 @@ async def stream_agent_chat(
         if agent_state:
             yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
 
-        yield make_chunk(status="finished", meta=meta)
-
+        # 先存储数据库，再返回 finished，避免前端查询时数据未落库
         await save_messages_from_langgraph_state(
             agent_instance=agent,
             thread_id=thread_id,
             conv_repo=conv_repo,
             config_dict=langgraph_config,
         )
+
+        yield make_chunk(status="finished", meta=meta)
 
     except (asyncio.CancelledError, ConnectionError) as e:
         logger.warning(f"Client disconnected, cancelling stream: {e}")
@@ -560,8 +590,8 @@ async def stream_agent_resume(
             yield chunk
 
         meta["time_cost"] = asyncio.get_event_loop().time() - start_time
-        yield make_resume_chunk(status="finished", meta=meta)
 
+        # 先存储数据库，再返回 finished，避免前端查询时数据未落库
         conv_repo = ConversationRepository(db)
         await save_messages_from_langgraph_state(
             agent_instance=agent,
@@ -569,6 +599,8 @@ async def stream_agent_resume(
             conv_repo=conv_repo,
             config_dict=langgraph_config,
         )
+
+        yield make_resume_chunk(status="finished", meta=meta)
 
     except (asyncio.CancelledError, ConnectionError) as e:
         logger.warning(f"Client disconnected during resume: {e}")
@@ -618,12 +650,23 @@ async def get_agent_state_view(
     state = await graph.aget_state(langgraph_config)
     agent_state = extract_agent_state(getattr(state, "values", {})) if state else {}
 
-    # 获取附件
-    try:
-        attachments = await conv_repo.get_attachments_by_thread_id(thread_id)
-        agent_state["attachments"] = attachments
-    except Exception as e:
-        logger.warning(f"Failed to fetch attachments for thread {thread_id}: {e}")
-        agent_state["attachments"] = []
+    # 如果 state 中没有 files，从附件构建
+    # 这确保了上传附件后立即可以在文件列表中看到文件
+    if not agent_state.get("files") or agent_state["files"] == {}:
+        try:
+            attachments = await conv_repo.get_attachments_by_thread_id(thread_id)
+            logger.info(f"[get_agent_state_view] found {len(attachments)} attachments in DB")
+            if attachments:
+                first_status = attachments[0].get("status")
+                first_has_markdown = bool(attachments[0].get("markdown"))
+                logger.info(
+                    f"[get_agent_state_view] first attachment status: {first_status}, "
+                    f"has markdown: {first_has_markdown}"
+                )
+                files = _build_state_files(attachments)
+                agent_state["files"] = files
+                logger.info(f"[get_agent_state_view] Built files from attachments: {len(files)} files")
+        except Exception as e:
+            logger.warning(f"Failed to fetch attachments for thread {thread_id}: {e}")
 
     return {"agent_state": agent_state}

@@ -65,16 +65,6 @@
       <div class="chat-content-container">
         <!-- Main Chat Area -->
         <div class="chat-main" ref="chatMainContainer">
-          <!-- 加载状态：加载消息 -->
-          <div v-if="isLoadingMessages" class="chat-loading">
-            <div class="loading-spinner"></div>
-            <span>正在加载消息...</span>
-          </div>
-
-          <div v-else-if="!conversations.length" class="chat-examples">
-            <div style="margin-bottom: 150px"></div>
-            <h1>您好，我是{{ currentAgentName }}！</h1>
-          </div>
           <div class="chat-box" ref="messagesContainer">
             <div class="conv-box" v-for="(conv, index) in conversations" :key="index">
               <AgentMessageComponent
@@ -122,6 +112,17 @@
             />
 
             <div class="message-input-wrapper">
+              <!-- 加载状态：加载消息 -->
+              <div v-if="isLoadingMessages" class="chat-loading">
+                <div class="loading-spinner"></div>
+                <span>正在加载消息...</span>
+              </div>
+
+              <!-- 打招呼区域 - 在输入框上方 -->
+              <div v-if="!conversations.length" class="chat-examples-input">
+                <h1>👋 您好，我是{{ currentAgentName }}！</h1>
+              </div>
+
               <AgentInputArea
                 ref="messageInputRef"
                 v-model="userInput"
@@ -135,6 +136,7 @@
                 :ensure-thread="ensureActiveThread"
                 :has-state-content="hasAgentStateContent"
                 :is-panel-open="isAgentPanelOpen"
+                :mention="mentionConfig"
                 @send="handleSendOrStop"
                 @attachment-changed="handleAgentStateRefresh"
                 @toggle-panel="toggleAgentPanel"
@@ -166,16 +168,28 @@
 
         <!-- Agent Panel Area -->
 
-        <transition name="panel-slide">
-          <div class="agent-panel-wrapper" v-if="isAgentPanelOpen && hasAgentStateContent">
-            <AgentPanel
-              :agent-state="currentAgentState"
-              :thread-id="currentChatId"
-              @refresh="handleAgentStateRefresh"
-              @close="toggleAgentPanel"
-            />
-          </div>
-        </transition>
+        <div
+          class="agent-panel-wrapper"
+          ref="panelWrapperRef"
+          :class="{
+            'is-visible': isAgentPanelOpen && hasAgentStateContent,
+            'no-transition': isResizing
+          }"
+          :style="{
+            flexBasis: isAgentPanelOpen && hasAgentStateContent ? `${panelRatio * 100}%` : '0px'
+          }"
+        >
+          <AgentPanel
+            v-if="isAgentPanelOpen && hasAgentStateContent"
+            :agent-state="currentAgentState"
+            :thread-id="currentChatId"
+            :panel-ratio="panelRatio"
+            @refresh="handleAgentStateRefresh"
+            @close="toggleAgentPanel"
+            @resize="handlePanelResize"
+            @resizing="handleResizingChange"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -196,7 +210,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useChatUIStore } from '@/stores/chatUI'
 import { storeToRefs } from 'pinia'
 import { MessageProcessor } from '@/utils/messageProcessor'
-import { agentApi, threadApi } from '@/apis'
+import { agentApi, threadApi, databaseApi, mcpApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
 import { useApproval } from '@/composables/useApproval'
 import { useAgentStreamHandler } from '@/composables/useAgentStreamHandler'
@@ -212,7 +226,14 @@ const emit = defineEmits(['open-config', 'open-agent-modal'])
 // ==================== STORE MANAGEMENT ====================
 const agentStore = useAgentStore()
 const chatUIStore = useChatUIStore()
-const { agents, selectedAgentId, defaultAgentId, selectedAgentConfigId } = storeToRefs(agentStore)
+const {
+  agents,
+  selectedAgentId,
+  defaultAgentId,
+  selectedAgentConfigId,
+  agentConfig,
+  configurableItems
+} = storeToRefs(agentStore)
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
@@ -255,8 +276,18 @@ const localUIState = reactive({
   isInitialRender: true
 })
 
+// Mention resources
+const availableKnowledgeBases = ref([])
+const availableMcps = ref([])
+
 // Agent Panel State
 const isAgentPanelOpen = ref(false)
+const isResizing = ref(false)
+const panelRatio = ref(0.4) // 面板宽度比例 (0-1)
+const panelWrapperRef = ref(null) // 直接操作 DOM
+const minPanelRatio = 0.3 // 最小比例 30%
+const maxPanelRatio = 0.6 // 最大比例 60%
+let panelContainerWidth = 0
 
 // ==================== COMPUTED PROPERTIES ====================
 const currentAgentId = computed(() => {
@@ -307,12 +338,21 @@ const currentAgentState = computed(() => {
 })
 
 const countFiles = (files) => {
-  if (!Array.isArray(files)) return 0
-  let c = 0
-  for (const item of files) {
-    if (item && typeof item === 'object') c += Object.keys(item).length
+  // 支持 dict 格式（StateBackend 格式）和 array 格式
+  if (!files) return 0
+  if (typeof files === 'object' && !Array.isArray(files)) {
+    // dict 格式: {"/attachments/file.md": {...}, ...}
+    return Object.keys(files).length
   }
-  return c
+  if (Array.isArray(files)) {
+    // array 格式
+    let c = 0
+    for (const item of files) {
+      if (item && typeof item === 'object') c += Object.keys(item).length
+    }
+    return c
+  }
+  return 0
 }
 
 const hasAgentStateContent = computed(() => {
@@ -320,8 +360,65 @@ const hasAgentStateContent = computed(() => {
   if (!s) return false
   const todoCount = Array.isArray(s.todos) ? s.todos.length : 0
   const fileCount = countFiles(s.files)
-  const attachmentCount = Array.isArray(s.attachments) ? s.attachments.length : 0
-  return todoCount > 0 || fileCount > 0 || attachmentCount > 0
+  return todoCount > 0 || fileCount > 0
+})
+
+const mentionConfig = computed(() => {
+  const rawFiles = currentAgentState.value?.files || {}
+  const files = []
+
+  // 处理 files - 兼容字典格式 {"/path/file": {content: [...]}} 和旧数组格式
+  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles) && rawFiles !== null) {
+    // 新格式：字典格式 {"/attachments/xxx/file.md": {...}}
+    Object.entries(rawFiles).forEach(([filePath, fileData]) => {
+      files.push({
+        path: filePath,
+        ...fileData
+      })
+    })
+  } else if (Array.isArray(rawFiles)) {
+    // 旧格式：数组格式
+    rawFiles.forEach((item) => {
+      if (typeof item === 'object' && item !== null) {
+        Object.entries(item).forEach(([filePath, fileData]) => {
+          files.push({
+            path: filePath,
+            ...fileData
+          })
+        })
+      }
+    })
+  }
+
+  // Filter KBs and MCPs based on agent config
+  const configItems = configurableItems.value || {}
+  const currentConfig = agentConfig.value || {}
+  const allowedKbNames = new Set()
+  const allowedMcpNames = new Set()
+
+  Object.entries(configItems).forEach(([key, item]) => {
+    const kind = item?.template_metadata?.kind
+    const val = currentConfig[key]
+
+    if (Array.isArray(val)) {
+      if (kind === 'knowledges') {
+        val.forEach((v) => allowedKbNames.add(v))
+      } else if (kind === 'mcps') {
+        val.forEach((v) => allowedMcpNames.add(v))
+      }
+    }
+  })
+
+  const knowledgeBases = availableKnowledgeBases.value.filter((kb) => allowedKbNames.has(kb.name))
+  const mcps = availableMcps.value.filter((mcp) => allowedMcpNames.has(mcp.name))
+
+  if (!files.length && !knowledgeBases.length && !mcps.length) return null
+
+  return {
+    files,
+    knowledgeBases,
+    mcps
+  }
 })
 
 const currentThreadMessages = computed(() => threadMessages.value[currentChatId.value] || [])
@@ -529,12 +626,15 @@ const deleteThread = async (threadId) => {
 const updateThread = async (threadId, title) => {
   if (!threadId || !title) return
 
+  const normalizedTitle = String(title).replace(/\s+/g, ' ').trim().slice(0, 255)
+  if (!normalizedTitle) return
+
   chatState.isRenamingThread = true
   try {
-    await threadApi.updateThread(threadId, title)
+    await threadApi.updateThread(threadId, normalizedTitle)
     const thread = threads.value.find((t) => t.id === threadId)
     if (thread) {
-      thread.title = title
+      thread.title = normalizedTitle
     }
   } catch (error) {
     console.error('Failed to update thread:', error)
@@ -571,9 +671,41 @@ const fetchAgentState = async (agentId, threadId) => {
   if (!agentId || !threadId) return
   try {
     const res = await agentApi.getAgentState(agentId, threadId)
-    const ts = getThreadState(threadId)
-    if (ts) ts.agentState = res.agent_state || null
+    // 确保更新 currentChatId 对应的 state，因为 currentAgentState 依赖它
+    // 如果 currentChatId 为 null，使用传入的 threadId
+    const targetChatId = currentChatId.value || threadId
+    console.log(
+      '[fetchAgentState] agentId:',
+      agentId,
+      'threadId:',
+      threadId,
+      'targetChatId:',
+      targetChatId,
+      'agent_state:',
+      JSON.stringify(res.agent_state || {})?.slice(0, 200)
+    )
+    const ts = getThreadState(targetChatId)
+    if (ts) {
+      ts.agentState = res.agent_state || null
+    } else {
+      // 如果 targetChatId 对应的 state 不存在，创建一个
+      const newTs = getThreadState(threadId)
+      if (newTs) newTs.agentState = res.agent_state || null
+    }
   } catch (error) {}
+}
+
+const fetchMentionResources = async () => {
+  try {
+    const [dbsRes, mcpsRes] = await Promise.all([
+      databaseApi.getAccessibleDatabases().catch(() => ({ databases: [] })),
+      mcpApi.getMcpServers().catch(() => ({ data: [] }))
+    ])
+    availableKnowledgeBases.value = dbsRes.databases || []
+    availableMcps.value = mcpsRes.data || []
+  } catch (e) {
+    console.warn('Failed to fetch mention resources', e)
+  }
 }
 
 const ensureActiveThread = async (title = '新的对话') => {
@@ -621,7 +753,10 @@ const sendMessage = async ({
 
   // 如果是新对话，用消息内容作为标题
   if ((threadMessages.value[threadId] || []).length === 0) {
-    updateThread(threadId, text)
+    const autoTitle = text.replace(/\s+/g, ' ').trim().slice(0, 255)
+    if (autoTitle) {
+      void updateThread(threadId, autoTitle).catch(() => {})
+    }
   }
 
   const requestData = {
@@ -827,7 +962,7 @@ const handleSendMessage = async ({ image } = {}) => {
   } finally {
     threadState.streamAbortController = null
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
-    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(
       () => {
         // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
@@ -847,7 +982,7 @@ const handleSendOrStop = async (payload) => {
 
     // 中断后刷新消息历史，确保显示最新的状态
     try {
-      await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 })
+      await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId })
       message.info('已中断对话生成')
     } catch (error) {
       console.error('刷新消息历史失败:', error)
@@ -908,7 +1043,7 @@ const handleApprovalWithStream = async (approved) => {
     }
 
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
-    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(
       () => {
         // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
@@ -964,13 +1099,59 @@ const toggleSidebar = () => {
 }
 const openAgentModal = () => emit('open-agent-modal')
 
-const handleAgentStateRefresh = async () => {
-  if (!currentAgentId.value || !currentChatId.value) return
-  await fetchAgentState(currentAgentId.value, currentChatId.value)
+const handleAgentStateRefresh = async (threadId = null) => {
+  if (!currentAgentId.value) return
+  // 优先使用传入的 threadId，否则使用当前的 currentChatId
+  let chatId = threadId || currentChatId.value
+  console.log(
+    '[handleAgentStateRefresh] input threadId:',
+    threadId,
+    'currentChatId:',
+    currentChatId.value,
+    'final chatId:',
+    chatId
+  )
+  if (!chatId) return
+  await fetchAgentState(currentAgentId.value, chatId)
 }
 
 const toggleAgentPanel = () => {
   isAgentPanelOpen.value = !isAgentPanelOpen.value
+}
+
+// 处理面板宽度调整（使用比例）
+// 向右拖动(deltaX > 0)让面板变窄，向左拖动(deltaX < 0)让面板变宽
+const handlePanelResize = (deltaX) => {
+  if (!panelWrapperRef.value) return
+
+  // 初始化容器宽度
+  if (!panelContainerWidth) {
+    const container = document.querySelector('.chat-content-container')
+    panelContainerWidth = container ? container.clientWidth : window.innerWidth
+  }
+
+  const currentWidth = panelWrapperRef.value.offsetWidth
+  // 反转 deltaX：向右拖(deltaX > 0)让面板变窄
+  const newWidth = currentWidth - deltaX
+  const newRatio = newWidth / panelContainerWidth
+
+  // 限制在合理范围内
+  if (newRatio >= minPanelRatio && newRatio <= maxPanelRatio) {
+    // 直接操作 DOM，不触发 Vue 响应式，使用 !important 确保不被覆盖
+    panelWrapperRef.value.style.setProperty('flex', `0 0 ${newWidth}px`, 'important')
+  }
+}
+
+// 拖拽状态变化时，同步最终状态到 Vue 响应式数据
+const handleResizingChange = (isResizingState) => {
+  isResizing.value = isResizingState
+
+  // 拖拽结束时，同步 DOM 宽度到响应式数据
+  if (!isResizingState && panelWrapperRef.value && panelContainerWidth) {
+    const finalWidth = panelWrapperRef.value.offsetWidth
+    panelRatio.value = finalWidth / panelContainerWidth
+    panelContainerWidth = 0 // 重置，供下次使用
+  }
 }
 
 // ==================== HELPER FUNCTIONS ====================
@@ -1042,6 +1223,7 @@ const initAll = async () => {
     if (!agentStore.isInitialized) {
       await agentStore.initialize()
     }
+    await fetchMentionResources()
   } catch (error) {
     handleChatError(error, 'load')
   }
@@ -1140,69 +1322,64 @@ watch(
   overflow: hidden;
   position: relative;
   width: 100%;
+  contain: layout;
 }
 
 .chat-main {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto; /* Scroll is here now */
   position: relative;
-  transition: flex 0.4s ease;
+  transition:
+    flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 0; /* Prevent flex item from overflowing */
+
+  scrollbar-width: none;
 }
 
 .agent-panel-wrapper {
-  flex: 1; /* 1:1 ratio with chat-main */
-  height: calc(100% - 32px);
+  flex: 0 0 auto;
+  height: calc(100% - 56px);
   overflow: hidden;
   z-index: 20;
-  margin: 16px;
+  margin: 28px 8px;
   margin-left: 0;
   background: var(--gray-0);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--shadow-1);
-  border: 1px solid var(--gray-200);
+  border: 1px solid var(--gray-150);
+  min-width: 0;
+  will-change: flex-basis;
 }
 
 /* Workbench transition animations */
-.panel-slide-enter-active,
-.panel-slide-leave-active {
-  transition:
-    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-    opacity 0.3s ease,
-    flex 0.4s ease;
-}
-
-.panel-slide-enter-from,
-.panel-slide-leave-to {
-  transform: translateX(30px) scale(0.98);
+.agent-panel-wrapper {
+  transition: flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0;
-  flex: 0 0 0; /* Shrink to zero width during transition */
-  margin-left: -16px; /* Compensate for margin during close */
+  transform: translateX(10px);
+  margin-left: -16px;
 }
 
-.chat-examples {
-  padding: 0 50px;
+.agent-panel-wrapper.is-visible {
+  opacity: 1;
+  transform: translateX(0);
+  margin-left: 0;
+}
+
+.agent-panel-wrapper.no-transition {
+  transition: none !important;
+}
+
+.chat-examples-input {
+  padding: 32px 0;
   text-align: center;
-  position: absolute;
-  bottom: 65%;
-  width: 100%;
-  z-index: 9;
-  animation: slideInUp 0.5s ease-out;
 
   h1 {
-    margin-bottom: 20px;
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     color: var(--gray-1000);
-  }
-
-  p {
-    font-size: 1.1rem;
-    color: var(--gray-700);
-  }
-
-  .agent-icons {
-    height: 180px;
+    margin: 0;
   }
 }
 

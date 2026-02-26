@@ -589,20 +589,21 @@ const handleMouseUp = () => {
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 8px;
-      background: var(--color-warning-50);
-      border-radius: 4px;
+      padding: 6px 12px;
+      background: var(--color-info-50);
+      border-left: 3px solid var(--color-info-500);
+      border-radius: 2px;
       font-size: 13px;
-      color: var(--color-warning-700);
+      color: var(--color-info-700);
       cursor: pointer;
       transition: all 0.2s;
 
       &:hover {
-        background: var(--color-warning-100);
+        background: var(--color-info-100);
       }
 
       svg {
-        color: var(--color-warning-700);
+        color: var(--color-info-500);
       }
     }
   }
@@ -653,7 +654,6 @@ const handleMouseUp = () => {
   :deep(.ant-tabs-nav) {
     margin-bottom: 0;
     // background-color: var(--gray-0);
-    border-bottom: 1px solid var(--gray-200);
   }
 
   :deep(.ant-tabs-extra-content) {

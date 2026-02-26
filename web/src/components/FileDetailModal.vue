@@ -25,7 +25,7 @@
           </span>
 
           <!-- 视图模式切换 -->
-          <div class="view-controls" v-if="file && hasContent">
+          <div class="view-controls" v-if="file && hasChunks">
             <a-segmented v-model:value="viewMode" :options="viewModeOptions" />
           </div>
 
@@ -141,21 +141,22 @@ const hasIndexed = computed(() => ['done', 'indexed'].includes(file.value?.statu
 const hasContent = computed(
   () => (file.value?.lines && file.value?.lines.length > 0) || file.value?.content
 )
+// 是否有实际的分块数据
+const hasChunks = computed(() => mappedChunks.value && mappedChunks.value.length > 0)
 
 const viewModeOptions = computed(() => {
   const options = [{ label: 'Markdown', value: 'markdown' }]
-  if (hasIndexed.value) {
+  // 只有当有实际的分块数据时才显示 Chunks 选项
+  if (hasChunks.value) {
     options.push({ label: 'Chunks', value: 'chunks' })
   }
   return options
 })
 
-// 监听文件状态变化，重置视图模式
+// 监听文件变化，如果没有 chunks 则重置为 markdown
 watch(file, (newFile) => {
-  if (newFile) {
-    if (!hasIndexed.value) {
-      viewMode.value = 'markdown'
-    }
+  if (newFile && !hasChunks.value) {
+    viewMode.value = 'markdown'
   }
 })
 

@@ -2,14 +2,14 @@
   <BaseToolCall :tool-call="toolCall">
     <template #header>
       <div class="sep-header">
-        <span class="note">write_file</span>
+        <span class="note">read_file</span>
         <span class="separator" v-if="filePath">|</span>
-        <span class="description code">{{ filePath }}</span>
-        <span class="tag success"> +{{ lineCount }}</span>
+        <span class="description">
+          <span class="code">{{ filePath }}</span>
+          <span class="tag" v-if="lineRange">{{ lineRange }}</span>
+        </span>
       </div>
     </template>
-
-    <template #result> </template>
   </BaseToolCall>
 </template>
 
@@ -39,9 +39,24 @@ const filePath = computed(() => {
   const path = parsedArgs.value.file_path || ''
   return path.startsWith('/') ? path.slice(1) : path
 })
-const content = computed(() => parsedArgs.value.content || '')
-const lineCount = computed(() => {
-  if (!content.value) return 0
-  return String(content.value).split('\n').length
+
+const lineRange = computed(() => {
+  const offset = parsedArgs.value.offset
+  const limit = parsedArgs.value.limit
+  if (offset !== undefined && limit !== undefined) {
+    return `Lines ${offset}-${Number(offset) + Number(limit)}`
+  } else if (limit !== undefined) {
+    return `First ${limit} lines`
+  }
+  return ''
 })
 </script>
+
+<style lang="less" scoped>
+.sep-header {
+  .tag {
+    color: var(--color-primary-600);
+    background-color: var(--color-primary-50);
+  }
+}
+</style>

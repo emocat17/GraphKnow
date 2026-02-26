@@ -1,24 +1,28 @@
 """Deep Agent - 基于create_deep_agent的深度分析智能体"""
 
+from deepagents.backends import StateBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
-    ModelRequest,
-    SummarizationMiddleware,
     TodoListMiddleware,
-    dynamic_prompt,
 )
 
 from src.agents.common import BaseAgent, load_chat_model
-from src.agents.common.middlewares import RuntimeConfigMiddleware, inject_attachment_context
+from src.agents.common.middlewares import RuntimeConfigMiddleware, SummaryOffloadMiddleware, save_attachments_to_fs
 from src.agents.common.tools import get_tavily_search
 from src.services.mcp_service import get_tools_from_all_servers
 
 from .context import DeepContext
 from .prompts import DEEP_PROMPT
 from src.utils import logger
+
+
+def _create_fs_backend(rt):
+    """创建文件存储后端"""
+    return StateBackend(rt)
+
 
 def _get_research_sub_agent(search_tools: list) -> dict:
     """Get research sub-agent config with search tools."""
@@ -55,12 +59,6 @@ critique_sub_agent = {
         "- 检查文章是否结构清晰、语言流畅、易于理解。"
     ),
 }
-
-
-@dynamic_prompt
-def context_aware_prompt(request: ModelRequest) -> str:
-    """从 runtime context 动态生成系统提示词"""
-    return DEEP_PROMPT + "\n\n\n" + request.runtime.context.system_prompt
 
 
 class DeepAgent(BaseAgent):
@@ -109,40 +107,43 @@ class DeepAgent(BaseAgent):
         # Build subagents with search tools
         research_sub_agent = _get_research_sub_agent(search_tools)
 
+        summary_middleware = SummaryOffloadMiddleware(
+            model=model,
+            trigger=("tokens", 160000),
+            trim_tokens_to_summarize=None,
+            summary_offload_threshold=1000,
+            max_retention_ratio=0.6,
+        )
+
+        subagents_middleware = SubAgentMiddleware(
+            default_model=sub_model,
+            default_tools=search_tools,
+            subagents=[critique_sub_agent, research_sub_agent],
+            default_middleware=[
+                RuntimeConfigMiddleware(
+                    model_context_name="subagents_model",
+                    enable_model_override=True,
+                    enable_system_prompt_override=False,
+                    enable_tools_override=False,
+                ),
+                PatchToolCallsMiddleware(),
+                summary_middleware,
+            ],
+            general_purpose_agent=True,
+        )
+
         # 使用 create_deep_agent 创建深度智能体
         graph = create_agent(
             model=model,
             system_prompt=context.system_prompt,
             middleware=[
-                context_aware_prompt,  # 动态系统提示词
-                inject_attachment_context,  # 附件上下文注入
+                FilesystemMiddleware(backend=_create_fs_backend),  # 文件系统后端
                 RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
+                save_attachments_to_fs,  # 附件注入提示词
                 TodoListMiddleware(),
-                FilesystemMiddleware(),
-                SubAgentMiddleware(
-                    default_model=sub_model,
-                    default_tools=search_tools,
-                    subagents=[critique_sub_agent, research_sub_agent],
-                    default_middleware=[
-                        TodoListMiddleware(),  # 子智能体也有 todo 列表
-                        FilesystemMiddleware(),  # 当前的两个文件系统是隔离的
-                        SummarizationMiddleware(
-                            model=sub_model,
-                            trigger=("tokens", 110000),
-                            keep=("messages", 10),
-                            trim_tokens_to_summarize=None,
-                        ),
-                        PatchToolCallsMiddleware(),
-                    ],
-                    general_purpose_agent=True,
-                ),
-                SummarizationMiddleware(
-                    model=model,
-                    trigger=("tokens", 110000),
-                    keep=("messages", 10),
-                    trim_tokens_to_summarize=None,
-                ),
                 PatchToolCallsMiddleware(),
+                subagents_middleware,
+                summary_middleware,
             ],
             checkpointer=await self._get_checkpointer(),
         )

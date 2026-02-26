@@ -79,17 +79,15 @@ class BaseAgent:
             context.update(agent_config)
         context.update(input_context or {})
         logger.debug(f"stream_messages: {context}")
-        # TODO Checkpointer 似乎还没有适配最新的 1.0 Context API
 
-        # 从 input_context 中提取 attachments（如果有）
-        attachments = (input_context or {}).get("attachments", [])
+        # 构建配置：LangGraph 会自动从 checkpointer 恢复 state
         input_config = {
             "configurable": {"thread_id": context.thread_id, "user_id": context.user_id},
             "recursion_limit": 300,
         }
 
         async for msg, metadata in graph.astream(
-            {"messages": messages, "attachments": attachments},
+            {"messages": messages},
             stream_mode="messages",
             context=context,
             config=input_config,
@@ -105,15 +103,16 @@ class BaseAgent:
         context.update(input_context or {})
         logger.debug(f"invoke_messages: {context}")
 
-        # 从 input_context 中提取 attachments（如果有）
-        attachments = (input_context or {}).get("attachments", [])
+        # 构建配置
         input_config = {
             "configurable": {"thread_id": context.thread_id, "user_id": context.user_id},
             "recursion_limit": 100,
         }
 
         msg = await graph.ainvoke(
-            {"messages": messages, "attachments": attachments}, context=context, config=input_config
+            {"messages": messages},
+            context=context,
+            config=input_config,
         )
         return msg
 

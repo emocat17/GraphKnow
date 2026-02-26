@@ -1,12 +1,19 @@
+from deepagents.backends import StateBackend
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
 
 from src.agents.common import BaseAgent, load_chat_model
 from src.agents.common.middlewares import (
     RuntimeConfigMiddleware,
-    inject_attachment_context,
+    save_attachments_to_fs,
 )
 from src.services.mcp_service import get_tools_from_all_servers
+
+
+def _create_fs_backend(rt):
+    """创建文件存储后端"""
+    return StateBackend(rt)
 
 
 class ChatbotAgent(BaseAgent):
@@ -30,7 +37,8 @@ class ChatbotAgent(BaseAgent):
             model=load_chat_model(context.model),
             system_prompt=context.system_prompt,
             middleware=[
-                inject_attachment_context,  # 附件上下文注入
+                save_attachments_to_fs,  # 附件注入提示词
+                FilesystemMiddleware(backend=_create_fs_backend),  # 文件系统后端
                 RuntimeConfigMiddleware(extra_tools=all_mcp_tools),  # 运行时配置应用（模型/工具/知识库/MCP/提示词）
                 ModelRetryMiddleware(),  # 模型重试中间件
             ],

@@ -208,7 +208,7 @@ class KnowledgeBase(ABC):
 
         # Save to metadata
         self.files_meta[file_id] = metadata
-        await self._save_metadata()
+        await self._persist_file(file_id)
 
         return metadata
 
@@ -256,7 +256,7 @@ class KnowledgeBase(ABC):
         self.files_meta[file_id]["updated_at"] = utc_isoformat()
         if operator_id:
             self.files_meta[file_id]["updated_by"] = operator_id
-        await self._save_metadata()
+        await self._persist_file(file_id)
 
         # Add to processing queue
         self._add_to_processing_queue(file_id)
@@ -293,7 +293,7 @@ class KnowledgeBase(ABC):
             self.files_meta[file_id]["updated_at"] = utc_isoformat()
             if operator_id:
                 self.files_meta[file_id]["updated_by"] = operator_id
-            await self._save_metadata()
+            await self._persist_file(file_id)
 
             return self.files_meta[file_id]
 
@@ -306,7 +306,7 @@ class KnowledgeBase(ABC):
             self.files_meta[file_id]["updated_at"] = utc_isoformat()
             if operator_id:
                 self.files_meta[file_id]["updated_by"] = operator_id
-            await self._save_metadata()
+            await self._persist_file(file_id)
 
             raise
 
@@ -338,7 +338,7 @@ class KnowledgeBase(ABC):
 
         logger.debug(f"[update_file_params] file_id={file_id}, updated_params={current_params}")
 
-        await self._save_metadata()
+        await self._persist_file(file_id)
 
     async def _save_markdown_to_minio(self, db_id: str, file_id: str, content: str) -> str:
         """Save markdown content to MinIO and return HTTP URL"""
@@ -431,7 +431,7 @@ class KnowledgeBase(ABC):
             "metadata": kwargs,
             "created_at": utc_isoformat(),
         }
-        await self._save_metadata()
+        await self._persist_kb(db_id)
 
         # 创建工作目录
         working_dir = os.path.join(self.work_dir, db_id)
@@ -496,7 +496,7 @@ class KnowledgeBase(ABC):
             "path": folder_name,
             "file_type": "folder",
         }
-        await self._save_metadata()
+        await self._persist_file(folder_id)
         return self.files_meta[folder_id]
 
     @abstractmethod
@@ -838,7 +838,7 @@ class KnowledgeBase(ABC):
                 current = parent_meta.get("parent_id")
 
         meta["parent_id"] = new_parent_id
-        await self._save_metadata()
+        await self._persist_file(file_id)
         return meta
 
     @abstractmethod
@@ -1120,3 +1120,78 @@ class KnowledgeBase(ABC):
                 }
                 if existing is None:
                     await eval_repo.create_benchmark(payload)
+
+    async def _persist_file(self, file_id: str) -> None:
+        """只保存单个文件到数据库，避免全量遍历"""
+        from src.repositories.knowledge_file_repository import KnowledgeFileRepository
+
+        file_repo = KnowledgeFileRepository()
+
+        if file_id not in self.files_meta:
+            return
+
+        meta = self.files_meta[file_id]
+        db_id = meta.get("database_id")
+        if not db_id:
+            return
+
+        await file_repo.upsert(
+            file_id=file_id,
+            data={
+                "db_id": db_id,
+                "parent_id": meta.get("parent_id"),
+                "filename": meta.get("filename") or "",
+                "original_filename": meta.get("original_filename"),
+                "file_type": meta.get("file_type"),
+                "path": meta.get("path"),
+                "minio_url": meta.get("minio_url"),
+                "markdown_file": meta.get("markdown_file"),
+                "status": meta.get("status"),
+                "content_hash": meta.get("content_hash"),
+                "file_size": meta.get("size"),
+                "content_type": meta.get("content_type"),
+                "processing_params": meta.get("processing_params"),
+                "is_folder": meta.get("is_folder", False),
+                "error_message": meta.get("error"),
+                "created_by": str(meta.get("created_by")) if meta.get("created_by") else None,
+                "updated_by": str(meta.get("updated_by")) if meta.get("updated_by") else None,
+            },
+        )
+
+    async def _persist_kb(self, db_id: str) -> None:
+        """只保存单个知识库到数据库，避免全量遍历"""
+        from src.repositories.knowledge_base_repository import KnowledgeBaseRepository
+
+        kb_repo = KnowledgeBaseRepository()
+
+        if db_id not in self.databases_meta:
+            return
+
+        meta = self.databases_meta[db_id]
+        existing = await kb_repo.get_by_id(db_id)
+        payload = {
+            "db_id": db_id,
+            "name": meta.get("name") or db_id,
+            "description": meta.get("description"),
+            "kb_type": meta.get("kb_type") or self.kb_type,
+            "embed_info": meta.get("embed_info"),
+            "llm_info": meta.get("llm_info"),
+            "query_params": meta.get("query_params"),
+            "additional_params": meta.get("metadata") or {},
+        }
+
+        if existing is None:
+            await kb_repo.create(payload)
+        else:
+            await kb_repo.update(
+                db_id,
+                {
+                    "name": payload["name"],
+                    "description": payload["description"],
+                    "kb_type": payload["kb_type"],
+                    "embed_info": payload["embed_info"],
+                    "llm_info": payload["llm_info"],
+                    "query_params": payload["query_params"],
+                    "additional_params": payload["additional_params"],
+                },
+            )

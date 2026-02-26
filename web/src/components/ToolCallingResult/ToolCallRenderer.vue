@@ -23,6 +23,30 @@
   <!-- 写文件 -->
   <WriteFileTool v-else-if="isWriteFileResult" :tool-call="toolCall" />
 
+  <!-- 读文件 -->
+  <ReadFileTool v-else-if="isReadFileResult" :tool-call="toolCall" />
+
+  <!-- 列目录 -->
+  <ListDirectoryTool v-else-if="isListDirectoryResult" :tool-call="toolCall" />
+
+  <!-- 搜索文件内容 -->
+  <SearchFileContentTool v-else-if="isSearchFileContentResult" :tool-call="toolCall" />
+
+  <!-- Glob 搜索 -->
+  <GlobTool v-else-if="isGlobResult" :tool-call="toolCall" />
+
+  <!-- 编辑文件 -->
+  <EditFileTool v-else-if="isEditFileResult" :tool-call="toolCall" />
+
+  <!-- MySQL 查询 -->
+  <MysqlQueryTool v-else-if="isMysqlQueryResult" :tool-call="toolCall" />
+
+  <!-- MySQL 描述表 -->
+  <MysqlDescribeTableTool v-else-if="isMysqlDescribeTableResult" :tool-call="toolCall" />
+
+  <!-- MySQL 列出表 -->
+  <MysqlListTablesTool v-else-if="isMysqlListTablesResult" :tool-call="toolCall" />
+
   <!-- 默认展示 -->
   <BaseToolCall v-else :tool-call="toolCall" />
 </template>
@@ -41,6 +65,14 @@ import TodoListTool from './tools/TodoListTool.vue'
 import ImageTool from './tools/ImageTool.vue'
 import TaskTool from './tools/TaskTool.vue'
 import WriteFileTool from './tools/WriteFileTool.vue'
+import ReadFileTool from './tools/ReadFileTool.vue'
+import ListDirectoryTool from './tools/ListDirectoryTool.vue'
+import SearchFileContentTool from './tools/SearchFileContentTool.vue'
+import GlobTool from './tools/GlobTool.vue'
+import EditFileTool from './tools/EditFileTool.vue'
+import MysqlQueryTool from './tools/MysqlQueryTool.vue'
+import MysqlDescribeTableTool from './tools/MysqlDescribeTableTool.vue'
+import MysqlListTablesTool from './tools/MysqlListTablesTool.vue'
 
 const props = defineProps({
   toolCall: {
@@ -128,6 +160,38 @@ const isImageResult = computed(() => {
 
 const isWriteFileResult = computed(() => {
   return toolName.value === 'write_file'
+})
+
+const isReadFileResult = computed(() => {
+  return toolName.value === 'read_file'
+})
+
+const isListDirectoryResult = computed(() => {
+  return toolName.value === 'list_directory' || toolName.value === 'ls'
+})
+
+const isSearchFileContentResult = computed(() => {
+  return toolName.value === 'search_file_content'
+})
+
+const isGlobResult = computed(() => {
+  return toolName.value === 'glob'
+})
+
+const isEditFileResult = computed(() => {
+  return toolName.value === 'edit_file' || toolName.value === 'replace'
+})
+
+const isMysqlQueryResult = computed(() => {
+  return toolName.value === 'mysql_query'
+})
+
+const isMysqlDescribeTableResult = computed(() => {
+  return toolName.value === 'mysql_describe_table'
+})
+
+const isMysqlListTablesResult = computed(() => {
+  return toolName.value === 'mysql_list_tables'
 })
 
 // 处理知识图谱刷新
