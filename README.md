@@ -129,9 +129,19 @@ cd Yuxi-Know
 然后需要使用 docker 启动项目
 
 ```
-docker compose up --build
+docker compose up -d --build
 
 # 如果使用的额外的文档解析服务，需要下载模型后重新运行api：
+# 需要确保 MODEL_DIR 环境变量指向 RapidOCR 上层目录，例如 ./models。
+## RapidOCR，基础 OCR
+hf download SWHL/RapidOCR --local-dir ./models/SWHL/RapidOCR
+docker compose up -d api
+
+## 结构化解析 (PP-StructureV3)
+# 需要 GPU，启动 PP-StructureV3 服务
+docker compose up -d paddlex
+
+# 启动主服务
 docker compose up -d api
 ```
 
