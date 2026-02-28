@@ -130,6 +130,9 @@ cd Yuxi-Know
 
 ```
 docker compose up --build
+
+# 如果使用的额外的文档解析服务，需要下载模型后重新运行api：
+docker compose up -d api
 ```
 
 等待启动完成后，访问 `http://localhost:5173`

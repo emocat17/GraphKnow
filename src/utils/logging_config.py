@@ -8,7 +8,7 @@ from src.utils.datetime_utils import shanghai_now
 
 SAVE_DIR = os.getenv("SAVE_DIR") or "saves"
 DATETIME = shanghai_now().strftime("%Y-%m-%d")
-LOG_FILE = f"{SAVE_DIR}/logs/yuxi-{DATETIME}.log"
+LOG_FILE = f"{SAVE_DIR}/logs/graphknow-{DATETIME}.log"
 
 
 class LoguruHandler(logging.Handler):
@@ -90,7 +90,7 @@ def setup_logger(name, level="DEBUG", console=True):
 
 
 # 设置根日志记录器
-logger = setup_logger("Yuxi")
+logger = setup_logger("GraphKnow")
 
 # 初始化 logging 桥接
 _setup_logging_bridge()
