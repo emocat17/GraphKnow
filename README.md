@@ -17,7 +17,7 @@
   <img src="https://trendshift.io/api/badge/repositories/15845" alt="Yuxi-Know | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
 </a>
 
-
+[**Issue跳转**](https://github.com/xerrors/Yuxi-Know/issues/) |
 [**文档中心**](https://xerrors.github.io/Yuxi-Know/) |
 [**视频演示**](https://www.bilibili.com/video/BV1DF14BTETq/)
 
