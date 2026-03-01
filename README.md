@@ -42,7 +42,7 @@
 ## 最新动态
 
 <details>
-<summary>[2026/01/24] v0.5.0-beta 版本发布</summary>
+<summary>[2026/03/01] v0.5.0 版本发布</summary>
 
 ### 新增
 
@@ -58,6 +58,8 @@
 - 优化后端的依赖，减少镜像体积 [#428](https://github.com/xerrors/Yuxi-Know/issues/428)
 - 优化 liaghtrag 的知识库调用结果，提供 content/graph/both 多个选项
 - 优化数据库查询工具，可通过设计环境变量添加描述，让模型更好的调用
+- 优化任务组件，改用 postgresql 存储，并新增删除任务的接口
+- 重构知识库文件系统，将附件与文件系统整合，文件系统使用 StateStore 存储
 
 ### 修复
 
@@ -65,6 +67,8 @@
 - 修复部分场景下获取工具列表报错 [#470](https://github.com/xerrors/Yuxi-Know/pull/470)
 - 修改方法备注信息 [#478](https://github.com/xerrors/Yuxi-Know/pull/478)
 - 修复多次 human-in-the-loop 的渲染解析问题 [#453](https://github.com/xerrors/Yuxi-Know/issues/453) [#475](https://github.com/xerrors/Yuxi-Know/pull/475)
+- 修复消息加载逻辑导致的前端消息渲染延迟问题
+- 
 
 </details>
 
