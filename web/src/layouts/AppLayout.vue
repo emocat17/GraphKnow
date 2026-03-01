@@ -1,7 +1,6 @@
 <script setup>
 import { ref, reactive, onMounted, computed, provide } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { GithubOutlined } from '@ant-design/icons-vue'
 import { Bot, Waypoints, LibraryBig, BarChart3, CircleCheck } from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
@@ -24,10 +23,6 @@ const layoutSettings = reactive({
   showDebug: false,
   useTopBar: false // 是否使用顶栏
 })
-
-// Add state for GitHub stars
-const githubStars = ref(0)
-const isLoadingStars = ref(false)
 
 // Add state for debug modal
 const showDebugModal = ref(false)
@@ -53,28 +48,12 @@ const getRemoteDatabase = () => {
   databaseStore.loadDatabases()
 }
 
-// Fetch GitHub stars count
-const fetchGithubStars = async () => {
-  try {
-    isLoadingStars.value = true
-    // 公共API，可以直接使用fetch
-    const response = await fetch('https://api.github.com/repos/xerrors/Yuxi-Know')
-    const data = await response.json()
-    githubStars.value = data.stargazers_count
-  } catch (error) {
-    console.error('获取GitHub stars失败:', error)
-  } finally {
-    isLoadingStars.value = false
-  }
-}
-
 onMounted(async () => {
   // 加载信息配置
   await infoStore.loadInfoConfig()
   // 加载其他配置
   getRemoteConfig()
   getRemoteDatabase()
-  fetchGithubStars() // Fetch GitHub stars on mount
   // 预加载任务数据，确保任务中心打开时有内容
   taskerStore.loadTasks()
 })
@@ -165,17 +144,6 @@ provide('settingsModal', {
         </div>
       </div>
       <div class="fill"></div>
-      <div class="github nav-item">
-        <a-tooltip placement="right">
-          <template #title>欢迎 Star</template>
-          <a href="https://github.com/xerrors/Yuxi-Know" target="_blank" class="github-link">
-            <GithubOutlined class="icon" />
-            <span v-if="githubStars > 0" class="github-stars">
-              <span class="star-count">{{ (githubStars / 1000).toFixed(1) }}k</span>
-            </span>
-          </a>
-        </a-tooltip>
-      </div>
       <!-- 用户信息组件 -->
       <div class="nav-item user-info">
         <UserInfoComponent />
@@ -315,39 +283,6 @@ div.header,
       color: var(--main-color);
     }
 
-    &.github {
-      padding: 10px 12px;
-      margin-bottom: 16px;
-      &:hover {
-        background-color: transparent;
-        border: 1px solid transparent;
-      }
-
-      .github-link {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        color: inherit;
-      }
-
-      .github-stars {
-        display: flex;
-        align-items: center;
-        font-size: 12px;
-        margin-top: 4px;
-
-        .star-icon {
-          color: var(--color-warning-500);
-          font-size: 12px;
-          margin-right: 2px;
-        }
-
-        .star-count {
-          font-weight: 600;
-        }
-      }
-    }
-
     &.api-docs {
       padding: 10px 12px;
     }
@@ -448,36 +383,6 @@ div.header,
     .text {
       margin-top: 0;
       font-size: 15px;
-    }
-
-    &.github {
-      padding: 8px 12px;
-
-      .icon {
-        margin-right: 0;
-        font-size: 18px;
-      }
-
-      &.active {
-        color: var(--main-color);
-      }
-
-      a {
-        display: flex;
-        align-items: center;
-      }
-
-      .github-stars {
-        display: flex;
-        align-items: center;
-        margin-left: 6px;
-
-        .star-icon {
-          color: var(--color-warning-500);
-          font-size: 14px;
-          margin-right: 2px;
-        }
-      }
     }
 
     &.theme-toggle-nav {
