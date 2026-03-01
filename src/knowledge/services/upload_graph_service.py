@@ -488,7 +488,7 @@ class UploadGraphService:
             logger.error(f"加载图数据库信息失败：{e}")
             return False
 
-    async def aget_embedding(self, text, batch_size=40):
+    async def aget_embedding(self, text, batch_size=10):
         if isinstance(text, list):
             outputs = await self.embed_model.abatch_encode(text, batch_size=batch_size)
             return outputs

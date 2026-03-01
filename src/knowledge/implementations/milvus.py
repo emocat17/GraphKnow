@@ -191,13 +191,13 @@ class MilvusKB(KnowledgeBase):
     def _get_async_embedding_function(self, embed_info: dict):
         """获取 embedding 函数"""
         embedding_model = self._get_async_embedding(embed_info)
-        return partial(embedding_model.abatch_encode, batch_size=40)
+        return partial(embedding_model.abatch_encode, batch_size=10)
 
     def _get_embedding_function(self, embed_info: dict):
         """获取 embedding 函数"""
         embedding_model = self._get_async_embedding(embed_info)
 
-        return partial(embedding_model.batch_encode, batch_size=40)
+        return partial(embedding_model.batch_encode, batch_size=10)
 
     async def _get_milvus_collection(self, db_id: str):
         """获取或创建 Milvus 集合"""

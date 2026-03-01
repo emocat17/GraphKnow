@@ -13,6 +13,7 @@ from src.agents.common import BaseAgent, load_chat_model
 from src.agents.common.middlewares import RuntimeConfigMiddleware, SummaryOffloadMiddleware, save_attachments_to_fs
 from src.agents.common.tools import get_tavily_search
 from src.services.mcp_service import get_tools_from_all_servers
+from src.utils import logger
 
 from .context import DeepContext
 
@@ -81,11 +82,14 @@ class DeepAgent(BaseAgent):
         if tavily_search:
             tools.append(tavily_search)
 
-        # Assert that search tool is available for DeepAgent
-        assert tools, (
-            "DeepAgent requires at least one search tool. "
-            "Please configure TAVILY_API_KEY environment variable to enable web search."
-        )
+        # # Assert that search tool is available for DeepAgent
+        # assert tools, (
+        #     "DeepAgent requires at least one search tool. "
+        #     "Please configure TAVILY_API_KEY environment variable to enable web search."
+        # )
+        if not tools:
+            logger.warning("No search tools configured, DeepAgent will work without web search")
+            tools = []
         return tools
 
     async def get_graph(self, **kwargs):

@@ -46,7 +46,7 @@ class BaseEmbeddingModel(ABC):
         """等同于aencode"""
         return await self.aencode(queries)
 
-    def batch_encode(self, messages: list[str], batch_size: int = 40) -> list[list[float]]:
+    def batch_encode(self, messages: list[str], batch_size: int = 10) -> list[list[float]]:
         # logger.info(f"Batch encoding {len(messages)} messages")
         data = []
         task_id = None
@@ -67,24 +67,39 @@ class BaseEmbeddingModel(ABC):
 
         return data
 
-    async def abatch_encode(self, messages: list[str], batch_size: int = 40) -> list[list[float]]:
+    async def abatch_encode(self, messages: list[str], batch_size: int = 10) -> list[list[float]]:
         data = []
         task_id = None
         if len(messages) > batch_size:
             task_id = hashstr(messages)
             self.embed_state[task_id] = {"status": "in-progress", "total": len(messages), "progress": 0}
 
-        tasks = []
+        # 保留原有逻辑：
+        # 使用 asyncio.gather 并发执行所有 embedding 批次请求：
+        # tasks = []
+        # for i in range(0, len(messages), batch_size):
+        #     group_msg = messages[i : i + batch_size]
+        #     tasks.append(self.aencode(group_msg))
+
+        # results = await asyncio.gather(*tasks)
+        # for res in results:
+        #     data.extend(res)
+
+        # if task_id:
+        #     self.embed_state[task_id]["progress"] = len(messages)
+        #     self.embed_state[task_id]["status"] = "completed"
+
+        # return data
+
         for i in range(0, len(messages), batch_size):
             group_msg = messages[i : i + batch_size]
-            tasks.append(self.aencode(group_msg))
-
-        results = await asyncio.gather(*tasks)
-        for res in results:
+            logger.info(f"Async encoding [{i}/{len(messages)}] messages (bsz={batch_size})")
+            res = await self.aencode(group_msg)
             data.extend(res)
+            if task_id:
+                self.embed_state[task_id]["progress"] = i + len(group_msg)
 
         if task_id:
-            self.embed_state[task_id]["progress"] = len(messages)
             self.embed_state[task_id]["status"] = "completed"
 
         return data

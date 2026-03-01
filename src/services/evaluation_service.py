@@ -336,7 +336,7 @@ class EvaluationService:
         # Currently, we re-calculate embeddings for ALL chunks in the KB for every benchmark generation.
         # This is inefficient for large KBs (O(N) embedding calls).
         # Optimization: Reuse existing embeddings from Vector DB if embedding_model_id matches the KB's embedding model.
-        embeddings = await embed_model.abatch_encode(contents, batch_size=40)
+        embeddings = await embed_model.abatch_encode(contents, batch_size=10)
         norms = [math.sqrt(sum(x * x for x in vec)) or 1.0 for vec in embeddings]
 
         def cosine(a, b, na, nb):
